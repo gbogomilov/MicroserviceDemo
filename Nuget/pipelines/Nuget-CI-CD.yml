@@ -59,7 +59,7 @@ stages:
         packagesToPack: 'Nuget/**/*.csproj;!**/*.Test.csproj'
         packDirectory: '$(Build.ArtifactStagingDirectory)/packages/nuget'
         nobuild: true
-        versioningScheme: 'byBuildNumber'
+        versioningScheme: 'off'
 
     - publish: '$(Build.ArtifactStagingDirectory)/packages/nuget'
       displayName: 'Publish Artifact: $(ArtifactNugetName)'
