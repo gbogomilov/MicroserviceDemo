@@ -1,33 +1,74 @@
-# .NET Desktop
-# Build and run tests for .NET Desktop or Windows classic desktop solutions.
-# Add steps that publish symbols, save build artifacts, and more:
-# https://docs.microsoft.com/azure/devops/pipelines/apps/windows/dot-net
-
+name : Nuget-CI-CD
 trigger:
-- master
+  branches:
+    include:
+      - master
+  paths:
+    include:
+    - Nuget/*
+    exclude:
+    - Nuget/**/*.Test
 
 pool:
-  vmImage: 'windows-latest'
+  vmImage: 'ubuntu-latest'
 
 variables:
-  solution: '**/*.sln'
-  buildPlatform: 'Any CPU'
-  buildConfiguration: 'Release'
+  BuildConfiguration: Release
+  ArtifactNugetName: 'packages-nuget'  
 
-steps:
-- task: NuGetToolInstaller@1
+stages:
+- stage: build
+  displayName: 'Build Nuget Package'
+  jobs:
+  - job: CI_Build
+    displayName: 'Nuget - Build, Pack and Test'    
+    steps:
+    - task: gitversion/setup@0
+      displayName: Install GitVersion
+      inputs:
+        versionSpec: '5.5.0'
+        
+    - task: gitversion/execute@0
+      displayName: Determine Version
+  
+    - task: DotNetCoreCLI@2
+      displayName: 'Restore packages'
+      inputs:
+        command: 'restore'
+        projects: 'Nuget/**/*.csproj'
+        feedsToUse: 'select'
 
-- task: NuGetCommand@2
-  inputs:
-    restoreSolution: '$(solution)'
+    - task: DotNetCoreCLI@2
+      displayName: 'Build solution'
+      inputs:
+        command: 'build'
+        projects: 'Nuget/**/*.csproj'
+        arguments: '-c $(BuildConfiguration) --no-restore'
 
-- task: VSBuild@1
-  inputs:
-    solution: '$(solution)'
-    platform: '$(buildPlatform)'
-    configuration: '$(buildConfiguration)'
+    - task: DotNetCoreCLI@2
+      displayName: Run tests
+      inputs:
+        command: 'test'        
+        projects: 'Nuget/**/*.Test.csproj'
+        arguments: '-c $(BuildConfiguration) --no-build /p:CollectCoverage=true /p:CoverletOutputFormat=cobertura /p:CoverletOutput=$(Build.SourcesDirectory)/TestResults/Coverage/'
+        publishTestResults: true
 
-- task: VSTest@2
-  inputs:
-    platform: '$(buildPlatform)'
-    configuration: '$(buildConfiguration)'
+    - task: PublishCodeCoverageResults@1
+      displayName: 'Publish code coverage report'
+      inputs:
+        codeCoverageTool: 'Cobertura'
+        summaryFileLocation: '$(Build.SourcesDirectory)/**/coverage.cobertura.xml'
+
+    - task: DotNetCoreCLI@2
+      displayName: 'Create nuget packages'
+      inputs:
+        command: 'pack'
+        packagesToPack: 'Nuget/**/*.csproj;!**/*.Test.csproj'
+        packDirectory: '$(Build.ArtifactStagingDirectory)/packages/nuget'
+        nobuild: true
+        versioningScheme: 'byBuildNumber'
+
+    - publish: '$(Build.ArtifactStagingDirectory)/packages/nuget'
+      displayName: 'Publish Artifact: $(ArtifactNugetName)'
+      artifact: 'packages-nuget'
+      condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
